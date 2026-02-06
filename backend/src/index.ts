@@ -1,10 +1,15 @@
-import { createApp } from "./app";
+import Elysia from "elysia";
+import { createWalletRoutes } from "./modules/wallet";
 
 const PORT = process.env.PORT || 3000;
 
-const app = createApp();
-
-app.listen(PORT);
+new Elysia().get("/api/ping", () => {
+  return {
+    pong: true,
+    timestamp: new Date().toISOString(),
+    status: "ok"
+  };
+}).group("/api", (group) => group.use(createWalletRoutes())).listen(PORT);
 
 console.log(
   `🚀 Ethereum Wallet Market Analysis server is running at http://localhost:${PORT}`
