@@ -238,7 +238,7 @@ function buildSentimentFromCoinData(coin: {
     : aggregate < -0.15
       ? "negative"
       : sources.some((entry) => entry.signal === "positive") &&
-          sources.some((entry) => entry.signal === "negative")
+        sources.some((entry) => entry.signal === "negative")
         ? "mixed"
         : sources.some((entry) => entry.signal === "unknown")
           ? "unknown"
