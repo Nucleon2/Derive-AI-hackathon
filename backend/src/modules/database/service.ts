@@ -195,6 +195,38 @@ async function getAllRecentTokenAnalyses(
 }
 
 /**
+ * Links a Discord user ID to an existing wallet-based user.
+ *
+ * First ensures the user exists (via findOrCreateUser), then
+ * sets the discordUserId field. Returns the updated user.
+ */
+async function linkDiscordUser(
+  walletAddress: string,
+  discordUserId: string,
+  client: PrismaClient = prisma
+) {
+  const user = await findOrCreateUser(walletAddress, client);
+
+  return client.user.update({
+    where: { id: user.id },
+    data: { discordUserId },
+  });
+}
+
+/**
+ * Finds a user by their Discord ID.
+ * Returns null if no user is linked to that Discord account.
+ */
+async function findUserByDiscordId(
+  discordUserId: string,
+  client: PrismaClient = prisma
+) {
+  return client.user.findFirst({
+    where: { discordUserId },
+  });
+}
+
+/**
  * Database service — centralized data access layer.
  *
  * All persistence logic for the agentic intelligence framework
@@ -203,6 +235,8 @@ async function getAllRecentTokenAnalyses(
  */
 export const databaseService = {
   findOrCreateUser,
+  linkDiscordUser,
+  findUserByDiscordId,
   saveWalletAnalysis,
   saveTokenAnalysis,
   getLatestWalletAnalysis,

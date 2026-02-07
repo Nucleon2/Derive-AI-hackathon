@@ -24,14 +24,10 @@ export async function handleLink(
   }
 
   try {
-    const user = await databaseService.findOrCreateUser(walletAddress);
-
-    // Update the user record with their Discord ID
-    const { prisma } = await import("../../database");
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { discordUserId: interaction.user.id },
-    });
+    await databaseService.linkDiscordUser(
+      walletAddress,
+      interaction.user.id
+    );
 
     await interaction.reply({
       content: `Wallet \`${walletAddress}\` linked to your Discord account.`,

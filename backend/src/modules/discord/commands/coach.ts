@@ -2,7 +2,7 @@ import {
   type ChatInputCommandInteraction,
   ChannelType,
 } from "discord.js";
-import { prisma } from "../../database";
+import { databaseService } from "../../database";
 import { sessionManager } from "../session-manager";
 import { joinChannel } from "../voice/connection-manager";
 
@@ -44,9 +44,9 @@ export async function handleCoach(
   }
 
   // Check if wallet is linked
-  const dbUser = await prisma.user.findFirst({
-    where: { discordUserId: interaction.user.id },
-  });
+  const dbUser = await databaseService.findUserByDiscordId(
+    interaction.user.id
+  );
 
   if (!dbUser) {
     await interaction.reply({
