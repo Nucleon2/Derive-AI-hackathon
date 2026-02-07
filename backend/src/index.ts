@@ -1,7 +1,8 @@
 import { Elysia } from "elysia"
 import { createWalletRoutes } from "./modules/wallet";
 import cors from "@elysiajs/cors";
-import { CLIENT_URL } from "./modules/constants/env.constants";
+import { CLIENT_URL, NODE_ENV } from "./modules/constants/env.constants";
+import openapi from "@elysiajs/openapi";
 
 const PORT = process.env.PORT || 3000;
 
@@ -10,6 +11,7 @@ new Elysia()
     origin: [CLIENT_URL],
     methods: ["POST", "GET", "PATCH", "DELETE"]
   }))
+  .use(openapi({ enabled: NODE_ENV === "development" }))
   .get("/api/ping", () => {
     return {
       pong: true,
