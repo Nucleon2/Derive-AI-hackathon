@@ -1,6 +1,7 @@
 import { Elysia } from "elysia";
 import { createWalletRoutes } from "./modules/wallet";
 import { createDiscordRoutes } from "./modules/discord";
+import { createSocialRoutes } from "./modules/social";
 import { databasePlugin } from "./modules/database";
 import { startBot } from "./modules/discord/bot";
 import cors from "@elysiajs/cors";
@@ -28,6 +29,7 @@ new Elysia()
     group
       .use(createWalletRoutes())
       .use(createDiscordRoutes())
+      .use(createSocialRoutes())
   ).listen(PORT);
 
 console.log(
@@ -37,6 +39,7 @@ console.log(`Health check: http://localhost:${PORT}/api/ping`);
 console.log(`Wallet API: http://localhost:${PORT}/api/address/:walletAddress`);
 console.log(`Token API: http://localhost:${PORT}/api/address/:walletAddress/token/:tokenAddress`);
 console.log(`Discord API: http://localhost:${PORT}/api/discord/status`);
+console.log(`Social API: http://localhost:${PORT}/api/social/generate`);
 
 // Auto-start Discord bot if enabled via environment variable
 if (process.env.DISCORD_AUTO_START === "true") {
