@@ -426,3 +426,5 @@ The primary goal is explainable market intelligence
 Trading execution is explicitly out of scope
 
 Access ./.agents/skills/elysiajs for Elysia skill references
+
+Always Access ./.agents/skills/vercel-react-best-practices for react best practices when working on frontend
