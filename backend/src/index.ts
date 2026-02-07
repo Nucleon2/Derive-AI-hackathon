@@ -43,6 +43,7 @@ function isOriginAllowedValue(origin?: string): boolean {
     return true;
   }
 
+  console.warn(`[cors] Rejected origin: ${origin}`);
   return false;
 }
 
