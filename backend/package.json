@@ -16,6 +16,7 @@
     "@elysiajs/openapi": "^1.4.14",
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
+    "@snazzah/davey": "^0.1.9",
     "discord.js": "^14.25.1",
     "elevenlabs": "^1.59.0",
     "elysia": "^1.1.31",
