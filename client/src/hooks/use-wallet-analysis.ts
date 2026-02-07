@@ -22,6 +22,8 @@ export function useWalletAnalysis() {
 
   const mutation = useMutation({
     mutationFn: (address: string) => analyzeWallet(address),
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
     onMutate: (address) => {
       setWalletAddress(address);
       setWalletAnalysis("loading");
