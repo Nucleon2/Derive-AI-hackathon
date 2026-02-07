@@ -2,7 +2,7 @@ import { Elysia } from "elysia";
 import { createWalletRoutes } from "./modules/wallet";
 import { databasePlugin } from "./modules/database";
 import cors from "@elysiajs/cors";
-import { CLIENT_URL, NODE_ENV } from "./modules/constants/env.constants";
+import { CLIENT_URL, NODE_ENV } from "./constants/env.constants";
 import openapi from "@elysiajs/openapi";
 
 
