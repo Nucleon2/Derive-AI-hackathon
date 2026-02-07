@@ -6,6 +6,8 @@
 import type {
   WalletAnalysisResponse,
   TokenAnalysisResponse,
+  SocialPostsResponse,
+  TokenAnalysis,
   WalletAnalysisHistoryResponse,
   TokenAnalysisHistoryResponse,
   DiscordStatusResponse,
@@ -37,6 +39,38 @@ export async function analyzeWallet(
     const errorBody = await response.json().catch(() => null);
     throw new Error(
       errorBody?.error ?? `Wallet analysis failed (${response.status})`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Generates social media posts for Threads, X, and LinkedIn
+ * based on a completed token analysis.
+ * Hits POST /api/social/generate on the backend.
+ */
+export async function generateSocialPosts(
+  tokenAnalysis: TokenAnalysis,
+  tokenAddress: string,
+  tokenSymbol?: string
+): Promise<SocialPostsResponse> {
+  const url = new URL("/api/social/generate", API_BASE_URL);
+
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      tokenAnalysis,
+      tokenAddress,
+      tokenSymbol,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new Error(
+      errorBody?.error ?? `Social post generation failed (${response.status})`
     );
   }
 
