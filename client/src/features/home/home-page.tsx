@@ -34,6 +34,7 @@ export function HomePage() {
   } = useWalletAnalysis();
 
   const {
+    tokenAddress,
     tokenAnalysisStatus,
     tokenAnalysis,
     tokenError,
@@ -228,6 +229,7 @@ export function HomePage() {
                   {tokenAnalysisStatus === "success" && tokenAnalysis && (
                     <TokenAnalysisResult
                       analysis={tokenAnalysis}
+                      tokenAddress={tokenAddress ?? ""}
                       onClear={clearTokenAnalysis}
                     />
                   )}
