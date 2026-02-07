@@ -1,9 +1,12 @@
 /**
  * TokenAnalysisHistory - Lists past token analyses from the database.
  * Each entry is expandable to show full behavioral insights and market data.
+ *
+ * Uses TanStack Query for data fetching, sharing cache with useWalletHistory.
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   RiCoinLine,
   RiArrowDownSLine,
@@ -25,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { getWalletAnalysisHistory } from "@/services/api";
+import { queryKeys } from "@/lib/query-client";
 import type { WalletAnalysisRecord } from "@/types/api";
 
 interface TokenAnalysisHistoryProps {
@@ -45,33 +49,38 @@ function formatDate(iso: string): string {
 export function TokenAnalysisHistory({
   walletAddress,
 }: TokenAnalysisHistoryProps) {
-  const [analyses, setAnalyses] = useState<WalletAnalysisRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const fetchHistory = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await getWalletAnalysisHistory(walletAddress, 20, 0);
-      if (response.success && response.analyses) {
-        setAnalyses(response.analyses);
-      } else {
-        setError(response.error ?? "Failed to load history");
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "An unexpected error occurred"
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [walletAddress]);
+  const query = useQuery({
+    queryKey: [
+      ...queryKeys.wallet.history(walletAddress),
+      "component",
+      20,
+    ],
+    queryFn: () => getWalletAnalysisHistory(walletAddress, 20, 0),
+  });
 
-  useEffect(() => {
-    fetchHistory();
-  }, [fetchHistory]);
+  const analyses: WalletAnalysisRecord[] =
+    query.data?.success && query.data.analyses
+      ? query.data.analyses
+      : [];
+
+  const isLoading = query.isLoading;
+
+  const error = query.error
+    ? query.error instanceof Error
+      ? query.error.message
+      : "An unexpected error occurred"
+    : query.data && !query.data.success
+      ? (query.data.error ?? "Failed to load history")
+      : null;
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.wallet.history(walletAddress),
+    });
+  };
 
   const toggleExpand = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -89,7 +98,7 @@ export function TokenAnalysisHistory({
             variant="ghost"
             size="sm"
             className="h-7 gap-1 text-[10px]"
-            onClick={fetchHistory}
+            onClick={handleRefresh}
             disabled={isLoading}
           >
             {isLoading ? (
@@ -161,7 +170,7 @@ export function TokenAnalysisHistory({
                     </button>
 
                     {/* Expanded details */}
-                    {isExpanded && (
+                    {isExpanded ? (
                       <div className="border-t border-border px-3 py-3 space-y-3">
                         <p className="text-[11px] text-muted-foreground leading-relaxed">
                           {analysis.summary}
@@ -174,7 +183,7 @@ export function TokenAnalysisHistory({
                           {analysis.activityLevelRationale}
                         </p>
 
-                        {analysis.dominantPatterns.length > 0 && (
+                        {analysis.dominantPatterns.length > 0 ? (
                           <div className="space-y-1">
                             <span className="text-[11px] font-medium text-foreground">
                               Patterns
@@ -191,9 +200,9 @@ export function TokenAnalysisHistory({
                               </div>
                             ))}
                           </div>
-                        )}
+                        ) : null}
 
-                        {analysis.reflectionQuestions.length > 0 && (
+                        {analysis.reflectionQuestions.length > 0 ? (
                           <div className="space-y-1">
                             <span className="text-[11px] font-medium text-foreground">
                               Reflections
@@ -207,16 +216,16 @@ export function TokenAnalysisHistory({
                               </p>
                             ))}
                           </div>
-                        )}
+                        ) : null}
 
-                        {analysis.ethBalance && (
+                        {analysis.ethBalance ? (
                           <p className="text-[10px] text-muted-foreground/60">
                             ETH balance at time of analysis:{" "}
                             {analysis.ethBalance} ETH
                           </p>
-                        )}
+                        ) : null}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </BlurFade>
               );
