@@ -77,8 +77,9 @@ export function useWalletHistory(
 
   /** Refresh from the beginning. */
   const refresh = useCallback(() => {
-    queryClient.invalidateQueries({
+    queryClient.resetQueries({
       queryKey: queryKeys.wallet.history(walletAddress ?? ""),
+      exact: true,
     });
   }, [queryClient, walletAddress]);
 

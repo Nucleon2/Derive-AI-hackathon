@@ -53,20 +53,14 @@ export function TokenAnalysisHistory({
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const query = useQuery({
-    queryKey: [
-      ...queryKeys.wallet.history(walletAddress),
-      "component",
-      20,
-    ],
+    queryKey: [...queryKeys.wallet.history(walletAddress), "component", 20],
     queryFn: () => getWalletAnalysisHistory(walletAddress, 20, 0),
   });
 
   const analyses: WalletAnalysisRecord[] =
-    query.data?.success && query.data.analyses
-      ? query.data.analyses
-      : [];
+    query.data?.success && query.data.analyses ? query.data.analyses : [];
 
-  const isLoading = query.isLoading;
+  const isLoading = query.isLoading || query.isFetching;
 
   const error = query.error
     ? query.error instanceof Error
@@ -127,8 +121,8 @@ export function TokenAnalysisHistory({
           <div className="flex flex-col items-center gap-2 py-8 text-center">
             <RiCoinLine className="size-8 text-muted-foreground/40" />
             <p className="text-xs text-muted-foreground">
-              No past analyses found. Run an analysis from the home
-              page to see results here.
+              No past analyses found. Run an analysis from the home page to see
+              results here.
             </p>
           </div>
         ) : (
