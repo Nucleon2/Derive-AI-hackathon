@@ -263,23 +263,24 @@ export function SocialShareModal({
                             )}
                           </Button>
 
-                          <a
-                            href={platform.composeUrl(post.content)}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <Button
+                            asChild
+                            variant="default"
+                            size="sm"
+                            className="gap-1.5"
                           >
-                            <Button
-                              variant="default"
-                              size="sm"
-                              className="gap-1.5"
+                            <a
+                              href={platform.composeUrl(post.content)}
+                              target="_blank"
+                              rel="noopener noreferrer"
                             >
                               <RiExternalLinkLine
                                 className="size-3.5"
                                 data-icon="inline-start"
                               />
                               {platform.buttonLabel}
-                            </Button>
-                          </a>
+                            </a>
+                          </Button>
                         </div>
                       </div>
                     </BlurFade>
