@@ -112,13 +112,10 @@ export function SocialShareModal({
   /** Reset state when modal closes. */
   useEffect(() => {
     if (!open) {
-      const timer = setTimeout(() => {
-        setStatus("idle");
-        setPosts(null);
-        setError(null);
-        setCopiedPlatform(null);
-      }, 200);
-      return () => clearTimeout(timer);
+      setStatus("idle");
+      setPosts(null);
+      setError(null);
+      setCopiedPlatform(null);
     }
   }, [open]);
 
