@@ -210,7 +210,13 @@ export async function startDiscordBot(): Promise<DiscordBotActionResponse> {
     );
   }
 
-  return response.json();
+  const body = (await response.json()) as DiscordBotActionResponse;
+  if ((body as any)?.status === "error") {
+    throw new Error(
+      (body as any)?.message ?? "Failed to start Discord bot (logical error)"
+    );
+  }
+  return body;
 }
 
 /**
