@@ -89,11 +89,11 @@ export interface TransferSizeMetrics {
   largeTransfersNearMove: number | null;
   percentLargeTransfersNearMove: number | null;
   dominantWindowDirectionForLarge:
-    | "up"
-    | "down"
-    | "mixed"
-    | "flat"
-    | "unknown";
+  | "up"
+  | "down"
+  | "mixed"
+  | "flat"
+  | "unknown";
 }
 
 /** Behavioral insights specific to a single token. */
@@ -158,7 +158,8 @@ export interface SocialPostsResponse {
   meta: {
     generatedAt: string;
     model?: string;
-  };
+  }
+}
 // ---------------------------------------------------------------------------
 // History & Database Record Types
 // ---------------------------------------------------------------------------
