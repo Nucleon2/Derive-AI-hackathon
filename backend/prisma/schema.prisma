@@ -17,6 +17,7 @@ datasource db {
 model User {
   id             String   @id @default(cuid())
   walletAddress  String   @unique @map("wallet_address") @db.VarChar(42)
+  discordUserId  String?  @unique @map("discord_user_id") @db.VarChar(20)
   firstSeenAt    DateTime @default(now()) @map("first_seen_at")
   lastActiveAt   DateTime @default(now()) @map("last_active_at")
 
