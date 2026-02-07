@@ -1,5 +1,10 @@
 import { Elysia, t } from "elysia";
-import { startBot, stopBot, getClient } from "./bot";
+import {
+  requestBotStart,
+  stopBot,
+  getClient,
+  getBotStatus,
+} from "./bot";
 import { databaseService } from "../database";
 import { sessionManager } from "./session-manager";
 
@@ -11,24 +16,50 @@ import { sessionManager } from "./session-manager";
  */
 export function createDiscordRoutes() {
   return new Elysia({ prefix: "/discord" })
-    .post("/start", async () => {
+    .post("/start", ({ set }) => {
+      const current = getBotStatus();
+      if (current.status === "online") {
+        return { status: "ok", message: "Discord bot is already running" };
+      }
+      if (current.status === "connecting") {
+        return { status: "ok", message: "Discord bot is already connecting" };
+      }
+
+      requestBotStart();
+
+      const after = getBotStatus();
+      if (after.status === "error") {
+        set.status = 500;
+        return {
+          status: "error",
+          message: after.error ?? "Failed to start Discord bot",
+        };
+      }
+
+      return {
+        status: "ok",
+        message: "Discord bot is connecting. Poll /status for updates.",
+      };
+    })
+    .post("/stop", async ({ set }) => {
       try {
-        await startBot();
-        return { status: "ok", message: "Discord bot started" };
+        await stopBot();
+        return { status: "ok", message: "Discord bot stopped" };
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown error";
+        console.error("[discord] Failed to stop bot:", error);
+        set.status = 500;
         return { status: "error", message };
       }
     })
-    .post("/stop", async () => {
-      await stopBot();
-      return { status: "ok", message: "Discord bot stopped" };
-    })
     .get("/status", () => {
       const client = getClient();
+      const { status, error } = getBotStatus();
       return {
-        online: !!client,
+        online: status === "online",
+        status,
+        error,
         username: client?.user?.tag ?? null,
         guilds: client?.guilds.cache.size ?? 0,
       };
