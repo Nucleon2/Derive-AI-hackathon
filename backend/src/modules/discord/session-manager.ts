@@ -44,6 +44,7 @@ interface StartSessionParams {
   guildId: string;
   channelId: string;
   connection: VoiceConnection;
+  tokenAddress?: string;
 }
 
 /**
@@ -64,9 +65,10 @@ async function startSession(
     guildId,
     channelId,
     connection,
+    tokenAddress,
   } = params;
 
-  const llm = new LlmService(walletAddress);
+  const llm = new LlmService(walletAddress, tokenAddress);
   await llm.initialize();
 
   const session: CoachingSession = {
