@@ -136,3 +136,27 @@ export interface TokenAnalysisResponse {
   error?: string;
   meta: TokenAnalysisMeta;
 }
+
+/** A single generated social media post for a specific platform. */
+export interface SocialPost {
+  platform: "threads" | "x" | "linkedin";
+  content: string;
+}
+
+/** All three platform posts returned from the generation endpoint. */
+export interface SocialPostsResult {
+  threads: SocialPost;
+  x: SocialPost;
+  linkedin: SocialPost;
+}
+
+/** Full response from POST /api/social/generate */
+export interface SocialPostsResponse {
+  success: boolean;
+  posts?: SocialPostsResult;
+  error?: string;
+  meta: {
+    generatedAt: string;
+    model?: string;
+  };
+}

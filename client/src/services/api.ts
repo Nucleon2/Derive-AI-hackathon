@@ -6,6 +6,8 @@
 import type {
   WalletAnalysisResponse,
   TokenAnalysisResponse,
+  SocialPostsResponse,
+  TokenAnalysis,
 } from "@/types/api";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
@@ -34,22 +36,36 @@ export async function analyzeWallet(
 }
 
 /**
- * Fetches token-specific market and behavioral analysis.
- * Hits GET /api/address/:walletAddress/token/:tokenAddress on the backend.
+ * Generates social media posts for Threads, X, and LinkedIn
+ * based on a completed token analysis.
+ * Hits POST /api/social/generate on the backend.
  */
-export async function analyzeToken(
-  walletAddress: string,
+export async function generateSocialPosts(
+  tokenAnalysis: TokenAnalysis,
   tokenAddress: string,
-  options?: { limit?: number; days?: number }
-): Promise<TokenAnalysisResponse> {
-  const url = new URL(
-    `/api/address/${walletAddress}/token/${tokenAddress}`,
-    API_BASE_URL
-  );
+  tokenSymbol?: string
+): Promise<SocialPostsResponse> {
+  const url = new URL("/api/social/generate", API_BASE_URL);
 
-  if (options?.limit) {
-    url.searchParams.set("limit", String(options.limit));
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      tokenAnalysis,
+      tokenAddress,
+      tokenSymbol,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new Error(
+      errorBody?.error ?? `Social post generation failed (${response.status})`
+    );
   }
+
+  return response.json();
+}
   if (options?.days) {
     url.searchParams.set("days", String(options.days));
   }
