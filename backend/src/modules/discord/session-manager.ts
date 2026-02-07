@@ -1,9 +1,16 @@
-import type { VoiceConnection } from "@discordjs/voice";
+import {
+  VoiceConnectionStatus,
+  type VoiceConnection,
+} from "@discordjs/voice";
 import { SttService } from "./pipeline/stt.service";
 import { LlmService } from "./pipeline/llm.service";
 import { TtsService } from "./pipeline/tts.service";
 import { subscribeToUser } from "./voice/audio-receiver";
-import { playAudio, stopPlayback, destroyPlayer } from "./voice/audio-player";
+import {
+  playAudio,
+  stopPlayback,
+  destroyPlayer,
+} from "./voice/audio-player";
 import { databaseService } from "../database";
 
 /**
@@ -43,10 +50,21 @@ interface StartSessionParams {
  * Starts a new coaching session for a user.
  *
  * Wires up the full pipeline:
- *   Discord audio → Deepgram STT → DeepSeek LLM → ElevenLabs TTS → Discord playback
+ *   Discord audio -> Deepgram STT -> DeepSeek LLM -> ElevenLabs TTS -> Discord playback
+ *
+ * Includes voice connection monitoring to auto-cleanup on disconnect.
  */
-async function startSession(params: StartSessionParams): Promise<void> {
-  const { userId, discordUserId, walletAddress, guildId, channelId, connection } = params;
+async function startSession(
+  params: StartSessionParams
+): Promise<void> {
+  const {
+    userId,
+    discordUserId,
+    walletAddress,
+    guildId,
+    channelId,
+    connection,
+  } = params;
 
   const llm = new LlmService(walletAddress);
   await llm.initialize();
@@ -93,19 +111,36 @@ async function startSession(params: StartSessionParams): Promise<void> {
       }
       stt.sendAudio(opusPacket);
     },
-    (_userId) => {
-      // Silence detected — Deepgram's endpointing handles turn detection
+    () => {
+      // Silence detected -- Deepgram's endpointing handles turn
     }
   );
 
   session.unsubscribeAudio = unsubscribe;
   sessions.set(discordUserId, session);
 
+  // Monitor voice connection -- auto-cleanup on disconnect
+  connection.on(VoiceConnectionStatus.Destroyed, () => {
+    console.log(
+      `[Session] Voice connection destroyed for ${discordUserId}`
+    );
+    cleanupSession(discordUserId).catch((err) => {
+      console.error("[Session] Cleanup on disconnect failed:", err);
+    });
+  });
+
   // Send an initial greeting via TTS
-  await processLlmResponse(
-    session,
-    "The user just joined the coaching session. Give a brief, warm greeting and reference one interesting pattern from their wallet data."
-  );
+  try {
+    await processLlmResponse(
+      session,
+      "The user just joined the coaching session. " +
+        "Give a brief, warm greeting and reference one " +
+        "interesting pattern from their wallet data."
+    );
+  } catch (err) {
+    console.error("[Session] Initial greeting failed:", err);
+    // Session is still usable even if greeting fails
+  }
 }
 
 /**
@@ -122,26 +157,31 @@ function handleTranscript(
     return;
   }
 
-  // Final transcript — process the complete utterance
+  // Final transcript -- process the complete utterance
   const finalText = transcript || session.utteranceBuffer;
   session.utteranceBuffer = "";
 
   if (!finalText.trim()) return;
 
-  console.log(`[STT] ${session.discordUserId}: "${finalText}"`);
+  console.log(
+    `[STT] ${session.discordUserId}: "${finalText}"`
+  );
   session.topicsDiscussed.push(finalText);
 
   // Don't overlap with an in-progress response
   if (session.isProcessing) return;
 
   processLlmResponse(session, finalText).catch((err) => {
-    console.error("Pipeline error:", err);
+    console.error("[Pipeline] Error processing response:", err);
     session.isProcessing = false;
   });
 }
 
 /**
- * Runs the LLM → TTS → playback pipeline for a single turn.
+ * Runs the LLM -> TTS -> playback pipeline for a single turn.
+ *
+ * Collects all TTS audio before playing to avoid choppy output.
+ * Protected against TTS/LLM failures with proper cleanup.
  */
 async function processLlmResponse(
   session: CoachingSession,
@@ -170,40 +210,51 @@ async function processLlmResponse(
   try {
     await tts.start();
   } catch (err) {
-    console.error("Failed to start TTS:", err);
+    console.error("[Pipeline] Failed to start TTS:", err);
+    session.tts = null;
     session.isProcessing = false;
     return;
   }
 
-  // Stream LLM response to TTS
-  let sentenceBuffer = "";
-  await session.llm.respond(
-    text,
-    (chunk) => {
-      sentenceBuffer += chunk;
-      // Send to TTS in sentence-sized chunks for natural pacing
-      const sentenceEnd = sentenceBuffer.match(/[.!?]\s/);
-      if (sentenceEnd && sentenceEnd.index !== undefined) {
-        const sentence = sentenceBuffer.slice(
-          0,
-          sentenceEnd.index + 1
-        );
-        tts.sendText(sentence);
-        sentenceBuffer = sentenceBuffer.slice(
-          sentenceEnd.index + 2
+  try {
+    // Stream LLM response to TTS
+    let sentenceBuffer = "";
+    await session.llm.respond(
+      text,
+      (chunk) => {
+        sentenceBuffer += chunk;
+        // Send to TTS in sentence-sized chunks for natural pacing
+        const sentenceEnd = sentenceBuffer.match(/[.!?]\s/);
+        if (sentenceEnd && sentenceEnd.index !== undefined) {
+          const sentence = sentenceBuffer.slice(
+            0,
+            sentenceEnd.index + 1
+          );
+          tts.sendText(sentence);
+          sentenceBuffer = sentenceBuffer.slice(
+            sentenceEnd.index + 2
+          );
+        }
+      },
+      (fullResponse) => {
+        // Flush remaining text
+        if (sentenceBuffer.trim()) {
+          tts.sendText(sentenceBuffer);
+        }
+        tts.flush();
+        session.nudgesDelivered.push(fullResponse);
+        console.log(
+          `[LLM] Response: "${fullResponse.slice(0, 80)}..."`
         );
       }
-    },
-    (fullResponse) => {
-      // Flush remaining text
-      if (sentenceBuffer.trim()) {
-        tts.sendText(sentenceBuffer);
-      }
-      tts.flush();
-      session.nudgesDelivered.push(fullResponse);
-      console.log(`[LLM] Response: "${fullResponse.slice(0, 80)}..."`);
-    }
-  );
+    );
+  } catch (err) {
+    console.error("[Pipeline] LLM response failed:", err);
+    tts.stop();
+    session.tts = null;
+    session.isProcessing = false;
+    return;
+  }
 
   // Wait for TTS to finish generating audio
   await ttsDonePromise;
@@ -212,15 +263,36 @@ async function processLlmResponse(
   if (audioChunks.length > 0) {
     const fullAudio = Buffer.concat(audioChunks);
     try {
-      await playAudio(session.connection, fullAudio, session.guildId);
+      await playAudio(
+        session.connection,
+        fullAudio,
+        session.guildId
+      );
     } catch (err) {
-      console.error("Audio playback error:", err);
+      console.error("[Pipeline] Audio playback error:", err);
     }
   }
 
   tts.stop();
   session.tts = null;
   session.isProcessing = false;
+}
+
+/**
+ * Internal cleanup -- stops all pipeline components without
+ * persisting to database. Used for unexpected disconnects.
+ */
+async function cleanupSession(
+  discordUserId: string
+): Promise<void> {
+  const session = sessions.get(discordUserId);
+  if (!session) return;
+
+  session.stt.stop();
+  if (session.tts) session.tts.stop();
+  if (session.unsubscribeAudio) session.unsubscribeAudio();
+  destroyPlayer(session.guildId);
+  sessions.delete(discordUserId);
 }
 
 /**
@@ -236,7 +308,7 @@ async function endSession(discordUserId: string): Promise<void> {
   if (session.unsubscribeAudio) session.unsubscribeAudio();
   destroyPlayer(session.guildId);
 
-  // Generate a session summary via LLM
+  // Generate a session summary from conversation history
   const history = session.llm.getHistory();
   const summaryText = history
     .map((m) => `${m.role}: ${m.content}`)
@@ -257,7 +329,10 @@ async function endSession(discordUserId: string): Promise<void> {
       sessionSummary: summaryText,
     });
   } catch (err) {
-    console.error("Failed to save session to database:", err);
+    console.error(
+      "[Session] Failed to save session to database:",
+      err
+    );
   }
 
   sessions.delete(discordUserId);
