@@ -292,6 +292,7 @@ export function SocialShareModal({
                               href={platform.composeUrl(post.content)}
                               target="_blank"
                               rel="noopener noreferrer"
+                              className="flex"
                             >
                               <RiExternalLinkLine
                                 className="size-3.5"
