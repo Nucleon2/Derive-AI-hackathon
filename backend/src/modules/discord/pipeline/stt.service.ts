@@ -26,6 +26,7 @@ export class SttService {
     null;
   private reconnectAttempts = 0;
   private isStopped = false;
+  private isOpen = false;
 
   constructor(onTranscript: TranscriptHandler) {
     this.onTranscript = onTranscript;
@@ -33,6 +34,7 @@ export class SttService {
 
   /**
    * Opens a streaming connection to Deepgram.
+   * Resolves only when the WebSocket is actually open and ready.
    */
   async start(): Promise<void> {
     const apiKey = process.env.DEEPGRAM_API_KEY;
@@ -43,6 +45,7 @@ export class SttService {
     }
 
     this.isStopped = false;
+    this.isOpen = false;
     const deepgram = createClient(apiKey);
 
     this.connection = deepgram.listen.live({
@@ -58,55 +61,75 @@ export class SttService {
       smart_format: true,
     });
 
-    this.connection.on(
-      LiveTranscriptionEvents.Transcript,
-      (data: {
-        is_final: boolean;
-        speech_final: boolean;
-        channel: {
-          alternatives: Array<{ transcript: string }>;
-        };
-      }) => {
-        const transcript =
-          data.channel?.alternatives?.[0]?.transcript;
-        if (!transcript) return;
+    return new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error("[STT] Connection timeout"));
+        this.stop();
+      }, 10_000);
 
-        // speech_final means the utterance is complete (endpointing)
-        const isFinal = data.speech_final ?? data.is_final;
-        this.onTranscript(transcript, isFinal);
-      }
-    );
+      this.connection!.on(LiveTranscriptionEvents.Open, () => {
+        clearTimeout(timeout);
+        this.isOpen = true;
+        this.reconnectAttempts = 0;
+        console.log("[STT] Deepgram connection opened");
+        resolve();
+      });
 
-    this.connection.on(
-      LiveTranscriptionEvents.Error,
-      (err: unknown) => {
-        console.error("[STT] Deepgram error:", err);
-      }
-    );
+      this.connection!.on(
+        LiveTranscriptionEvents.Transcript,
+        (data: {
+          is_final: boolean;
+          speech_final: boolean;
+          channel: {
+            alternatives: Array<{ transcript: string }>;
+          };
+        }) => {
+          const transcript =
+            data.channel?.alternatives?.[0]?.transcript;
+          if (!transcript) return;
 
-    this.connection.on(LiveTranscriptionEvents.Close, () => {
-      this.cleanupTimers();
-      // Auto-reconnect if we didn't stop intentionally
-      if (!this.isStopped) {
-        this.attemptReconnect();
-      }
+          const isFinal = data.speech_final ?? data.is_final;
+          console.log(
+            `[STT] Transcript (${isFinal ? "final" : "interim"}): "${transcript}"`
+          );
+          this.onTranscript(transcript, isFinal);
+        }
+      );
+
+      this.connection!.on(
+        LiveTranscriptionEvents.Error,
+        (err: unknown) => {
+          clearTimeout(timeout);
+          console.error("[STT] Deepgram error:", err);
+        }
+      );
+
+      this.connection!.on(LiveTranscriptionEvents.Close, () => {
+        this.isOpen = false;
+        this.cleanupTimers();
+        console.log("[STT] Deepgram connection closed");
+        if (!this.isStopped) {
+          this.attemptReconnect();
+        }
+      });
+
+      // Keep connection alive during silence
+      this.keepAliveInterval = setInterval(() => {
+        if (this.isOpen) {
+          this.connection?.keepAlive();
+        }
+      }, 10_000);
     });
-
-    // Keep connection alive during silence
-    this.keepAliveInterval = setInterval(() => {
-      this.connection?.keepAlive();
-    }, 10_000);
-
-    this.reconnectAttempts = 0;
   }
 
   /**
-   * Attempts to reconnect to Deepgram after an unexpected disconnect.
+   * Attempts to reconnect to Deepgram after an unexpected
+   * disconnect.
    */
   private async attemptReconnect(): Promise<void> {
     if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       console.error(
-        `[STT] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`
+        `[STT] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached`
       );
       this.connection = null;
       return;
@@ -114,9 +137,11 @@ export class SttService {
 
     this.reconnectAttempts++;
     const delay =
-      RECONNECT_DELAY_MS * Math.pow(2, this.reconnectAttempts - 1);
+      RECONNECT_DELAY_MS *
+      Math.pow(2, this.reconnectAttempts - 1);
     console.log(
-      `[STT] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`
+      `[STT] Reconnecting in ${delay}ms ` +
+        `(attempt ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`
     );
 
     await new Promise((r) => setTimeout(r, delay));
@@ -134,10 +159,10 @@ export class SttService {
 
   /**
    * Sends an Opus audio chunk to Deepgram for transcription.
-   * Silently drops packets if connection is unavailable.
+   * Silently drops packets if connection is not open.
    */
   sendAudio(opusPacket: Buffer): void {
-    if (!this.connection) return;
+    if (!this.connection || !this.isOpen) return;
     try {
       this.connection.send(
         opusPacket.buffer.slice(
@@ -151,10 +176,10 @@ export class SttService {
   }
 
   /**
-   * Returns whether the STT connection is active.
+   * Returns whether the STT connection is active and open.
    */
   isConnected(): boolean {
-    return this.connection !== null;
+    return this.connection !== null && this.isOpen;
   }
 
   /**
@@ -162,6 +187,7 @@ export class SttService {
    */
   stop(): void {
     this.isStopped = true;
+    this.isOpen = false;
     try {
       this.connection?.requestClose();
     } catch {

@@ -57,12 +57,23 @@ export function subscribeToUser(
     });
 
     activeStream = opusStream;
+    let packetCount = 0;
 
     opusStream.on("data", (chunk: Buffer) => {
+      packetCount++;
+      if (packetCount === 1) {
+        console.log(
+          `[Audio] Receiving opus packets from ${userId}`
+        );
+      }
       onChunk(chunk, userId);
     });
 
     opusStream.on("end", () => {
+      console.log(
+        `[Audio] Stream ended for ${userId} ` +
+          `(${packetCount} packets)`
+      );
       activeStream = null;
       onEnd(userId);
     });

@@ -28,6 +28,7 @@ interface CoachingSession {
   tts: TtsService | null;
   unsubscribeAudio: (() => void) | null;
   isProcessing: boolean;
+  interrupted: boolean;
   utteranceBuffer: string;
   topicsDiscussed: string[];
   nudgesDelivered: string[];
@@ -51,9 +52,10 @@ interface StartSessionParams {
  * Starts a new coaching session for a user.
  *
  * Wires up the full pipeline:
- *   Discord audio -> Deepgram STT -> DeepSeek LLM -> ElevenLabs TTS -> Discord playback
+ *   Discord audio -> Deepgram STT -> DeepSeek LLM
+ *     -> ElevenLabs TTS -> Discord playback
  *
- * Includes voice connection monitoring to auto-cleanup on disconnect.
+ * Includes voice connection monitoring for auto-cleanup.
  */
 async function startSession(
   params: StartSessionParams
@@ -68,8 +70,14 @@ async function startSession(
     tokenAddress,
   } = params;
 
+  console.log(
+    `[Session] Starting for ${discordUserId} ` +
+      `(wallet: ${walletAddress})`
+  );
+
   const llm = new LlmService(walletAddress, tokenAddress);
   await llm.initialize();
+  console.log("[Session] LLM initialized");
 
   const session: CoachingSession = {
     userId,
@@ -83,6 +91,7 @@ async function startSession(
     tts: null,
     unsubscribeAudio: null,
     isProcessing: false,
+    interrupted: false,
     utteranceBuffer: "",
     topicsDiscussed: [],
     nudgesDelivered: [],
@@ -96,38 +105,37 @@ async function startSession(
 
   session.stt = stt;
   await stt.start();
+  console.log("[Session] STT started");
 
   // Subscribe to the user's audio in the voice channel
   const unsubscribe = subscribeToUser(
     connection,
     discordUserId,
     (opusPacket) => {
-      // When user speaks while bot is playing, interrupt
-      if (session.isProcessing) {
-        stopPlayback(guildId);
-        if (session.tts) {
-          session.tts.stop();
-          session.tts = null;
-        }
-        session.isProcessing = false;
-      }
+      // Forward audio to STT -- interruption is handled
+      // separately in handleTranscript to avoid races
       stt.sendAudio(opusPacket);
     },
     () => {
-      // Silence detected -- Deepgram's endpointing handles turn
+      console.log("[Audio] User stopped speaking");
     }
   );
 
   session.unsubscribeAudio = unsubscribe;
   sessions.set(discordUserId, session);
+  console.log("[Session] Audio subscription active");
 
   // Monitor voice connection -- auto-cleanup on disconnect
   connection.on(VoiceConnectionStatus.Destroyed, () => {
     console.log(
-      `[Session] Voice connection destroyed for ${discordUserId}`
+      `[Session] Voice connection destroyed for ` +
+        `${discordUserId}`
     );
     cleanupSession(discordUserId).catch((err) => {
-      console.error("[Session] Cleanup on disconnect failed:", err);
+      console.error(
+        "[Session] Cleanup on disconnect failed:",
+        err
+      );
     });
   });
 
@@ -139,6 +147,7 @@ async function startSession(
         "Give a brief, warm greeting and reference one " +
         "interesting pattern from their wallet data."
     );
+    console.log("[Session] Initial greeting delivered");
   } catch (err) {
     console.error("[Session] Initial greeting failed:", err);
     // Session is still usable even if greeting fails
@@ -147,6 +156,9 @@ async function startSession(
 
 /**
  * Handles incoming transcripts from Deepgram.
+ *
+ * Accumulates interim results and triggers the LLM pipeline
+ * on final transcripts.
  */
 function handleTranscript(
   session: CoachingSession,
@@ -154,7 +166,6 @@ function handleTranscript(
   isFinal: boolean
 ): void {
   if (!isFinal) {
-    // Accumulate interim results
     session.utteranceBuffer = transcript;
     return;
   }
@@ -166,12 +177,34 @@ function handleTranscript(
   if (!finalText.trim()) return;
 
   console.log(
-    `[STT] ${session.discordUserId}: "${finalText}"`
+    `[Pipeline] User said: "${finalText}"`
   );
   session.topicsDiscussed.push(finalText);
 
-  // Don't overlap with an in-progress response
-  if (session.isProcessing) return;
+  // If already processing, mark as interrupted so the current
+  // pipeline knows to stop, then queue this utterance
+  if (session.isProcessing) {
+    console.log(
+      "[Pipeline] Interrupting current response"
+    );
+    session.interrupted = true;
+    stopPlayback(session.guildId);
+    if (session.tts) {
+      session.tts.stop();
+      session.tts = null;
+    }
+    // Wait briefly for the current pipeline to notice and exit,
+    // then process the new utterance
+    setTimeout(() => {
+      session.isProcessing = false;
+      session.interrupted = false;
+      processLlmResponse(session, finalText).catch((err) => {
+        console.error("[Pipeline] Error after interrupt:", err);
+        session.isProcessing = false;
+      });
+    }, 100);
+    return;
+  }
 
   processLlmResponse(session, finalText).catch((err) => {
     console.error("[Pipeline] Error processing response:", err);
@@ -183,13 +216,17 @@ function handleTranscript(
  * Runs the LLM -> TTS -> playback pipeline for a single turn.
  *
  * Collects all TTS audio before playing to avoid choppy output.
- * Protected against TTS/LLM failures with proper cleanup.
+ * Checks the `interrupted` flag between stages so we can bail
+ * out quickly when the user speaks over the bot.
  */
 async function processLlmResponse(
   session: CoachingSession,
   text: string
 ): Promise<void> {
   session.isProcessing = true;
+  session.interrupted = false;
+
+  console.log("[Pipeline] Starting LLM -> TTS -> playback");
 
   // Collect all audio chunks, play when done
   const audioChunks: Buffer[] = [];
@@ -211,6 +248,7 @@ async function processLlmResponse(
 
   try {
     await tts.start();
+    console.log("[Pipeline] TTS connected");
   } catch (err) {
     console.error("[Pipeline] Failed to start TTS:", err);
     session.tts = null;
@@ -218,14 +256,25 @@ async function processLlmResponse(
     return;
   }
 
+  // Bail if interrupted while TTS was connecting
+  if (session.interrupted) {
+    tts.stop();
+    session.tts = null;
+    session.isProcessing = false;
+    return;
+  }
+
   try {
-    // Stream LLM response to TTS
     let sentenceBuffer = "";
+
     await session.llm.respond(
       text,
       (chunk) => {
+        // Bail mid-stream if interrupted
+        if (session.interrupted) return;
+
         sentenceBuffer += chunk;
-        // Send to TTS in sentence-sized chunks for natural pacing
+        // Send to TTS in sentence-sized chunks
         const sentenceEnd = sentenceBuffer.match(/[.!?]\s/);
         if (sentenceEnd && sentenceEnd.index !== undefined) {
           const sentence = sentenceBuffer.slice(
@@ -239,6 +288,7 @@ async function processLlmResponse(
         }
       },
       (fullResponse) => {
+        if (session.interrupted) return;
         // Flush remaining text
         if (sentenceBuffer.trim()) {
           tts.sendText(sentenceBuffer);
@@ -258,21 +308,47 @@ async function processLlmResponse(
     return;
   }
 
+  // Bail if interrupted during LLM streaming
+  if (session.interrupted) {
+    tts.stop();
+    session.tts = null;
+    session.isProcessing = false;
+    return;
+  }
+
   // Wait for TTS to finish generating audio
   await ttsDonePromise;
+  console.log(
+    `[Pipeline] TTS done, ${audioChunks.length} chunks ` +
+      `(${audioChunks.reduce((s, c) => s + c.length, 0)} bytes)`
+  );
+
+  // Bail if interrupted during TTS
+  if (session.interrupted) {
+    tts.stop();
+    session.tts = null;
+    session.isProcessing = false;
+    return;
+  }
 
   // Play the collected audio
   if (audioChunks.length > 0) {
     const fullAudio = Buffer.concat(audioChunks);
     try {
+      console.log(
+        `[Pipeline] Playing ${fullAudio.length} bytes of audio`
+      );
       await playAudio(
         session.connection,
         fullAudio,
         session.guildId
       );
+      console.log("[Pipeline] Playback finished");
     } catch (err) {
       console.error("[Pipeline] Audio playback error:", err);
     }
+  } else {
+    console.warn("[Pipeline] No audio chunks received from TTS");
   }
 
   tts.stop();
