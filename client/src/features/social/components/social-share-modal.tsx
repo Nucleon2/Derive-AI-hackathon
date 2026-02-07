@@ -4,7 +4,7 @@
  * navigate to each platform to paste and publish.
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import {
   RiCloseLine,
@@ -73,6 +73,7 @@ export function SocialShareModal({
   const [posts, setPosts] = useState<SocialPostsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copiedPlatform, setCopiedPlatform] = useState<string | null>(null);
+  const copyTimeoutRef = useRef<number | null>(null);
 
   /** Generate posts when the modal opens. */
   const generate = useCallback(async () => {
@@ -112,6 +113,12 @@ export function SocialShareModal({
   /** Reset state when modal closes. */
   useEffect(() => {
     if (!open) {
+      // Clear any pending copy timeout
+      if (copyTimeoutRef.current !== null) {
+        clearTimeout(copyTimeoutRef.current);
+        copyTimeoutRef.current = null;
+      }
+      
       const timer = setTimeout(() => {
         setStatus("idle");
         setPosts(null);
@@ -128,7 +135,16 @@ export function SocialShareModal({
       try {
         await navigator.clipboard.writeText(text);
         setCopiedPlatform(platform);
-        setTimeout(() => setCopiedPlatform(null), 2000);
+        
+        // Clear any existing timeout before setting a new one
+        if (copyTimeoutRef.current !== null) {
+          clearTimeout(copyTimeoutRef.current);
+        }
+        
+        copyTimeoutRef.current = window.setTimeout(() => {
+          setCopiedPlatform(null);
+          copyTimeoutRef.current = null;
+        }, 2000);
       } catch {
         // Fallback: select text for manual copy
       }

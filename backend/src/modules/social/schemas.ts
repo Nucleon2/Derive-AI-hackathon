@@ -14,9 +14,9 @@ export const socialPostSchema = z.object({
  * This is what we expect DeepSeek to return as structured JSON.
  */
 export const llmSocialPostsOutputSchema = z.object({
-  threads: z.string().min(1),
+  threads: z.string().min(1).max(500),
   x: z.string().min(1).max(280),
-  linkedin: z.string().min(1),
+  linkedin: z.string().min(1).max(700),
 });
 
 /**
