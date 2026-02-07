@@ -55,21 +55,7 @@ export async function handleCoach(
     return;
   }
 
-  // Check if wallet is linked
-  const dbUser = await databaseService.findUserByDiscordId(
-    interaction.user.id
-  );
-
-  if (!dbUser) {
-    await interaction.reply({
-      content:
-        "Link your wallet first with `/link <wallet_address>`.",
-      flags: 64,
-    });
-    return;
-  }
-
-  // Optional token address for focused coaching
+  // Validate optional token address before deferring
   const tokenAddress =
     interaction.options.getString("token_address");
 
@@ -83,9 +69,23 @@ export async function handleCoach(
     return;
   }
 
+  // Acknowledge immediately so Discord doesn't time out
+  // (DB and voice operations below can be slow)
   await interaction.deferReply({ flags: 64 });
 
   try {
+    // Check if wallet is linked (DB call -- may be slow)
+    const dbUser = await databaseService.findUserByDiscordId(
+      interaction.user.id
+    );
+
+    if (!dbUser) {
+      await interaction.editReply(
+        "Link your wallet first with `/link <wallet_address>`."
+      );
+      return;
+    }
+
     // Join the voice channel
     const connection = joinChannel(
       voiceChannel.id,
@@ -116,7 +116,8 @@ export async function handleCoach(
   } catch (error) {
     console.error("[Coach] Failed to start session:", error);
     await interaction.editReply(
-      "Failed to start session. Please try again."
+      "Failed to start session. The database may be " +
+        "unavailable — please try again later."
     );
   }
 }
