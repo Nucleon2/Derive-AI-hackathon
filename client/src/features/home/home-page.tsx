@@ -39,6 +39,7 @@ export function HomePage() {
     tokenAddress,
     tokenAnalysisStatus,
     tokenAnalysis,
+    tokenAnalysisMeta,
     tokenError,
     isLoading: isTokenLoading,
     submitTokenAddress,
@@ -242,6 +243,7 @@ export function HomePage() {
                       <TokenAnalysisResult
                         analysis={tokenAnalysis}
                         tokenAddress={tokenAddress}
+                        meta={tokenAnalysisMeta}
                         onClear={clearTokenAnalysis}
                       />
                     )}

@@ -14,17 +14,19 @@ import { BlurFade } from "@/components/ui/blur-fade";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SocialShareModal } from "@/features/social";
-import type { TokenAnalysis } from "@/types/api";
+import type { TokenAnalysis, TokenAnalysisMeta } from "@/types/api";
 
 interface TokenAnalysisResultProps {
   analysis: TokenAnalysis;
   tokenAddress: string;
+  meta?: TokenAnalysisMeta | null;
   onClear: () => void;
 }
 
 export function TokenAnalysisResult({
   analysis,
   tokenAddress,
+  meta,
   onClear,
 }: TokenAnalysisResultProps) {
   const [shareModalOpen, setShareModalOpen] = useState(false);
