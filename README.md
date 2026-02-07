@@ -8,6 +8,12 @@ Ethos analyzes on-chain wallet activity, correlates it with market data, and pro
 
 ---
 
+## Demo
+
+
+https://github.com/user-attachments/assets/22b6acc8-7737-469b-9cf6-9aa01f61f7eb
+
+
 ## What It Does
 
 - **Wallet Behavioral Analysis** -- Fetches transaction history from Etherscan, identifies patterns (trading frequency, token habits, risk signals), and generates a structured behavioral profile via DeepSeek LLM.
