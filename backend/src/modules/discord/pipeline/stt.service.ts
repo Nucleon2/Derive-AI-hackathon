@@ -16,8 +16,16 @@ const RECONNECT_DELAY_MS = 2000;
  * Manages a Deepgram WebSocket connection for real-time
  * speech-to-text on Discord Opus audio.
  *
- * Discord sends Opus at 48kHz stereo -- Deepgram accepts it natively.
- * Includes automatic reconnection on unexpected disconnects.
+ * Discord sends Opus at 48kHz stereo -- Deepgram accepts it
+ * natively.
+ *
+ * Turn detection strategy:
+ *   We use Deepgram's UtteranceEnd event (utterance_end_ms) as
+ *   the primary signal that the user finished speaking. When it
+ *   fires, we flush the accumulated interim text as a final
+ *   transcript. This is more reliable than speech_final for
+ *   short-lived audio streams (Discord's opus stream ends on
+ *   silence before Deepgram's endpointing can fire).
  */
 export class SttService {
   private connection: ListenLiveClient | null = null;
@@ -27,6 +35,19 @@ export class SttService {
   private reconnectAttempts = 0;
   private isStopped = false;
   private isOpen = false;
+
+  /**
+   * Accumulates the latest interim transcript so we can flush it
+   * as final when UtteranceEnd fires or the audio stream ends.
+   */
+  private lastInterim = "";
+
+  /**
+   * Tracks whether we already emitted a final transcript for the
+   * current utterance (to avoid duplicates from both is_final and
+   * UtteranceEnd firing).
+   */
+  private finalEmitted = false;
 
   constructor(onTranscript: TranscriptHandler) {
     this.onTranscript = onTranscript;
@@ -46,6 +67,8 @@ export class SttService {
 
     this.isStopped = false;
     this.isOpen = false;
+    this.lastInterim = "";
+    this.finalEmitted = false;
     const deepgram = createClient(apiKey);
 
     this.connection = deepgram.listen.live({
@@ -88,11 +111,42 @@ export class SttService {
             data.channel?.alternatives?.[0]?.transcript;
           if (!transcript) return;
 
-          const isFinal = data.speech_final ?? data.is_final;
-          console.log(
-            `[STT] Transcript (${isFinal ? "final" : "interim"}): "${transcript}"`
-          );
-          this.onTranscript(transcript, isFinal);
+          if (data.is_final) {
+            // Deepgram confirmed this segment -- accumulate it
+            console.log(
+              `[STT] Segment final: "${transcript}"`
+            );
+            // If speech_final is also set, treat as end of turn
+            if (data.speech_final) {
+              this.emitFinal(transcript);
+            } else {
+              // Accumulate finalized segments
+              this.lastInterim = this.lastInterim
+                ? `${this.lastInterim} ${transcript}`
+                : transcript;
+              this.onTranscript(transcript, false);
+            }
+          } else {
+            // Interim result -- update the buffer
+            console.log(
+              `[STT] Transcript (interim): "${transcript}"`
+            );
+            // Keep track of latest interim for this segment
+            this.lastInterim = this.lastInterim
+              ? `${this.lastInterim} ${transcript}`
+              : transcript;
+            this.onTranscript(transcript, false);
+          }
+        }
+      );
+
+      // UtteranceEnd fires when Deepgram detects the user stopped
+      // speaking. This is our primary "turn done" signal.
+      this.connection!.on(
+        LiveTranscriptionEvents.UtteranceEnd,
+        () => {
+          console.log("[STT] UtteranceEnd event received");
+          this.emitFinal(this.lastInterim);
         }
       );
 
@@ -123,13 +177,48 @@ export class SttService {
   }
 
   /**
+   * Emits a final transcript and resets the accumulation state.
+   * Guards against duplicate emissions.
+   */
+  private emitFinal(text: string): void {
+    if (this.finalEmitted) return;
+    const finalText = (text || this.lastInterim).trim();
+    if (!finalText) return;
+
+    this.finalEmitted = true;
+    this.lastInterim = "";
+    console.log(`[STT] Transcript (FINAL): "${finalText}"`);
+    this.onTranscript(finalText, true);
+
+    // Reset for next utterance after a short delay
+    setTimeout(() => {
+      this.finalEmitted = false;
+    }, 200);
+  }
+
+  /**
+   * Called when the Discord audio stream ends (user stops
+   * speaking). If we have accumulated text that was never
+   * finalized, flush it now.
+   */
+  flushPending(): void {
+    if (this.lastInterim.trim() && !this.finalEmitted) {
+      console.log(
+        "[STT] Flushing pending transcript on stream end"
+      );
+      this.emitFinal(this.lastInterim);
+    }
+  }
+
+  /**
    * Attempts to reconnect to Deepgram after an unexpected
    * disconnect.
    */
   private async attemptReconnect(): Promise<void> {
     if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       console.error(
-        `[STT] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached`
+        `[STT] Max reconnect attempts ` +
+          `(${MAX_RECONNECT_ATTEMPTS}) reached`
       );
       this.connection = null;
       return;
@@ -141,7 +230,8 @@ export class SttService {
       Math.pow(2, this.reconnectAttempts - 1);
     console.log(
       `[STT] Reconnecting in ${delay}ms ` +
-        `(attempt ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`
+        `(attempt ${this.reconnectAttempts}` +
+        `/${MAX_RECONNECT_ATTEMPTS})...`
     );
 
     await new Promise((r) => setTimeout(r, delay));

@@ -118,6 +118,9 @@ async function startSession(
     },
     () => {
       console.log("[Audio] User stopped speaking");
+      // Flush any pending interim transcript as final
+      // since the audio stream has ended
+      stt.flushPending();
     }
   );
 
